@@ -59,6 +59,7 @@ jobs:
             exit 0
           fi
           echo "ready=false" >> "$GITHUB_OUTPUT"
+          for t in "${todo[@]}"; do echo "To do: $t"; done
           {
             echo "## Almost there: ${#todo[@]} thing(s) to do first"
             echo
