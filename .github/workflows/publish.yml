@@ -1,0 +1,172 @@
+name: Publish
+
+# Signs the list of apps in repository.input.json and publishes it on this repo's
+# GitHub Pages, with a page for people (https://<you>.github.io/<this-repo>/).
+# Runs when you add or remove an app, on every release here, and once a day:
+# Apps2Samsung stops accepting a list older than 7 days, so it is signed again daily
+# even when nothing changed.
+
+on:
+  push:
+    branches: [main]
+    paths: [repository.input.json]
+  release:
+    types: [published]
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  # Is everything set up? Says in plain words what's missing, with links.
+  check:
+    if: github.repository != 'Apps2Samsung/repository-template'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: read
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HAS_KEY: ${{ secrets.REPO_SIGNING_KEY != '' }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          r="$GITHUB_REPOSITORY"
+          todo=()
+          pages=$(gh api "repos/$r/pages" --jq .build_type 2>/dev/null || true)
+          if [ "$pages" != "workflow" ]; then
+            todo+=("**Turn on Pages:** open [Settings > Pages](https://github.com/$r/settings/pages) and under *Build and deployment > Source* choose **GitHub Actions**.")
+          fi
+          if [ "$HAS_KEY" != "true" ]; then
+            todo+=("**Make your key:** open [apps2samsung.com/repository-key](https://apps2samsung.com/repository-key/?repo=$r) and follow its three steps.")
+          fi
+          if [ ! -s repository.input.json ]; then
+            todo+=("**Add your first app:** open [Actions > Add an app](https://github.com/$r/actions/workflows/add-app.yml), click **Run workflow**, paste your app's link and pick a category.")
+          fi
+          if [ ${#todo[@]} -eq 0 ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Almost there: ${#todo[@]} thing(s) to do first"
+            echo
+            for t in "${todo[@]}"; do echo "1. $t"; done
+            echo
+            echo "Then run **Publish** again ([Actions > Publish](https://github.com/$r/actions/workflows/publish.yml) > Run workflow)."
+          } >> "$GITHUB_STEP_SUMMARY"
+          # The daily run stays green until you're set up, so it doesn't email you every day.
+          if [ "$EVENT" = "schedule" ]; then
+            echo "::notice::Not set up yet: see the summary of this run."
+            exit 0
+          fi
+          echo "::error::Not set up yet: open this run's summary to see what to do."
+          exit 1
+
+  publish:
+    needs: check
+    if: needs.check.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # The tools that build and sign the list, from Apps2Samsung/tizen-community-packages.
+      # Following main means you get fixes without doing anything. To review every change
+      # yourself instead, put a commit SHA here and update it when you choose.
+      - uses: actions/checkout@v4
+        with:
+          repository: Apps2Samsung/tizen-community-packages
+          ref: main
+          path: _tcp
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - run: pip install jsonschema
+
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Build and sign
+        env:
+          REPO_SIGNING_KEY: ${{ secrets.REPO_SIGNING_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          SITE: ${{ steps.pages.outputs.base_url }}
+        run: |
+          set -o pipefail
+          if ! python3 -I _tcp/scripts/repo-generate.py \
+                 --input repository.input.json --out _site \
+                 --previous "$SITE/repository.json.signed" --site-url "$SITE" 2>&1 | tee "$RUNNER_TEMP/log"; then
+            {
+              echo "## ❌ Publishing failed"
+              echo
+              echo "The last lines of the log:"
+              echo
+              echo '```'
+              tail -n 5 "$RUNNER_TEMP/log"
+              echo '```'
+              echo
+              echo "Most often: the key isn't the whole file (copy it again from the key page, including the"
+              echo "BEGIN and END lines), or none of your apps has a release with a .wgt or .tpk file."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          fp=$(sed -n 's/^key fingerprint: //p' "$RUNNER_TEMP/log")
+          {
+            echo "## ✅ Your repository is published"
+            echo
+            echo "Give people this address. They add it in Apps2Samsung under **Settings > Installing > Your sources**:"
+            echo
+            echo '```'
+            echo "$SITE/repository.json.signed"
+            echo '```'
+            echo
+            echo "Key fingerprint (Apps2Samsung shows it when someone adds your repository):"
+            echo
+            echo '```'
+            echo "$fp"
+            echo '```'
+            echo
+            echo "Your page with both, and the list of apps: $SITE/"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  # GitHub switches off daily runs in a repo with no activity for 60 days, and
+  # publishing doesn't count as activity. This switches the daily run back on each day.
+  keepalive:
+    if: github.event_name == 'schedule' && github.repository != 'Apps2Samsung/repository-template'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/publish.yml/enable"

@@ -1,0 +1,50 @@
+name: Remove an app
+
+# Takes an app out of your repository, then publishes. People who installed it keep it,
+# but no longer get updates from you. Click "Run workflow" above the list of runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "Link to the app's GitHub repository, the same one you added"
+        required: true
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: edit-apps
+  cancel-in-progress: false
+
+jobs:
+  remove:
+    if: github.repository != 'Apps2Samsung/repository-template'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Apps2Samsung/tizen-community-packages
+          ref: main
+          path: _tcp
+          persist-credentials: false
+
+      - name: Remove the app
+        env:
+          APP: ${{ inputs.app }}
+        run: python3 -I _tcp/scripts/repo-input.py remove --file repository.input.json --app "$APP"
+
+      - name: Save and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP: ${{ inputs.app }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add repository.input.json
+          git commit -q -m "Remove an app: $APP"
+          git push -q
+          gh workflow run publish.yml --ref "$GITHUB_REF_NAME"

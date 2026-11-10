@@ -1,0 +1,76 @@
+name: Add an app
+
+# Adds an app to your repository (or changes its category or name), then publishes.
+# Click "Run workflow" above the list of runs to fill it in.
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "Link to your app's GitHub repository, for example https://github.com/yourname/my-app"
+        required: true
+      category:
+        description: "Where the app is listed in Apps2Samsung"
+        type: choice
+        required: true
+        default: other
+        options:
+          - media
+          - iptv
+          - streaming
+          - games
+          - casting
+          - tools
+          - other
+      name:
+        description: "Name shown in Apps2Samsung (optional: leave empty to use the app's own name)"
+        required: false
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: edit-apps
+  cancel-in-progress: false
+
+jobs:
+  add:
+    if: github.repository != 'Apps2Samsung/repository-template'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The helper that edits repository.input.json, from Apps2Samsung/tizen-community-packages.
+      - uses: actions/checkout@v4
+        with:
+          repository: Apps2Samsung/tizen-community-packages
+          ref: main
+          path: _tcp
+          persist-credentials: false
+
+      - name: Add the app
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          APP: ${{ inputs.app }}
+          CATEGORY: ${{ inputs.category }}
+          NAME: ${{ inputs.name }}
+        run: |
+          python3 -I _tcp/scripts/repo-input.py add --file repository.input.json \
+            --repository "$GITHUB_REPOSITORY" --app "$APP" --category "$CATEGORY" --name "$NAME"
+
+      - name: Save and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP: ${{ inputs.app }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add repository.input.json
+          if git diff --cached --quiet; then
+            echo "Nothing changed: the app was already listed like this."
+          else
+            git commit -q -m "Add an app: $APP"
+            git push -q
+          fi
+          gh workflow run publish.yml --ref "$GITHUB_REF_NAME"
