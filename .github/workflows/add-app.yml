@@ -20,6 +20,7 @@ on:
           - streaming
           - games
           - casting
+          - home
           - tools
           - other
       name:
