@@ -55,6 +55,9 @@ https://<your-github-name>.github.io/<your-repository>/repository.json.signed
 Your repository also gets its own page, `https://<your-github-name>.github.io/<your-repository>/`,
 with the address, your key fingerprint and your apps. You can link to it from your app's README.
 
+**Your app's icon comes along by itself.** It is taken out of your `.wgt` or `.tpk` (the icon your
+app has on the TV) and shown next to your app in Apps2Samsung and TV-Store. Nothing to upload.
+
 ## Every day after that
 
 - **You release a new version of your app:** nothing to do. Your repository picks it up within a day
@@ -91,6 +94,10 @@ For each new version, make a new release the same way with a higher version numb
   responsible for having the right to distribute what you publish.
 - **Lost your key?** Make a new one on the key page and replace the secret. Everyone who added your
   repository then has to approve the new key, so keep the backup safe.
+- **No icon next to your app?** Your package needs an icon that is a PNG, JPEG, GIF or WebP of at
+  most 1 MB: for a `.wgt` the one `config.xml` names (`<icon src="icon.png"/>`), for a `.tpk` the
+  one `tizen-manifest.xml` names. A repository made before 25 November 2026 gets its icons with the
+  next daily run, or right away with Actions > Publish > Run workflow.
 - **Your repository's id** is set when you add your first app, from your GitHub name and repository
   name. It never changes after that, even if you rename the repository.
 
